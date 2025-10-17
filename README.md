@@ -1,2 +1,2 @@
 # website-front-end
-Sample web front end codebase!!
+Sample web front end codebase!
