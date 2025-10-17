@@ -1,0 +1,22 @@
+{
+  "name": "website-front-end",
+  "version": "1.0.0",
+  "description": "Sample web front end codebase with user profile dashboard",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "dev": "python -m http.server 8000",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": [
+    "dashboard",
+    "user-profile",
+    "frontend",
+    "javascript",
+    "responsive"
+  ],
+  "author": "Dashboard Team",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}
