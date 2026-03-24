@@ -504,9 +504,425 @@ class RecommendationsComponent {
     }
 }
 
+/**
+ * Registration component that covers sign-up, verification, password reset,
+ * profile updates, and audit visibility.
+ */
+class RegistrationComponent {
+    /**
+     * @param {string} containerId - Container element ID
+     * @param {RegistrationAPI} api - Registration API instance
+     */
+    constructor(containerId, api) {
+        this.container = document.getElementById(containerId);
+        this.api = api;
+        this.currentCaptcha = this.api.generateCaptchaChallenge();
+        this.activeUserId = null;
+
+        this.init();
+    }
+
+    /** Initialize component UI and listeners */
+    init() {
+        if (!this.container) {
+            console.error('Registration container not found');
+            return;
+        }
+
+        this.render();
+        this.bindEvents();
+        this.refreshPanels();
+    }
+
+    /** Render component layout */
+    render() {
+        this.container.innerHTML = `
+            <div class="registration-layout">
+                <div class="registration-card">
+                    <h4>Create Account</h4>
+                    <form id="registration-form" class="form-grid" novalidate>
+                        <label>
+                            Full Name
+                            <input type="text" name="fullName" placeholder="Jane Doe" required>
+                        </label>
+                        <label>
+                            Email
+                            <input type="email" name="email" placeholder="jane@example.com" required>
+                        </label>
+                        <label>
+                            Phone
+                            <input type="tel" name="phone" placeholder="(555) 123-4567">
+                        </label>
+                        <label>
+                            Password
+                            <input type="password" name="password" id="registration-password" placeholder="Create a strong password" required>
+                        </label>
+                        <label>
+                            Confirm Password
+                            <input type="password" name="confirmPassword" placeholder="Re-enter password" required>
+                        </label>
+                        <label>
+                            CAPTCHA: Solve <span id="captcha-question">${this.currentCaptcha.question}</span>
+                            <input type="number" name="captcha" placeholder="Answer" required>
+                        </label>
+                        <div class="password-strength" id="password-strength">Password strength: —</div>
+                        <div id="registration-errors" class="form-errors hidden"></div>
+                        <button type="submit" class="btn btn-primary">Register</button>
+                    </form>
+                </div>
+
+                <div class="registration-card">
+                    <h4>Email Verification</h4>
+                    <form id="verification-form" class="form-grid" novalidate>
+                        <label>
+                            Verification Token
+                            <input type="text" name="verificationToken" placeholder="verify_..." required>
+                        </label>
+                        <button type="submit" class="btn btn-secondary">Verify Email</button>
+                    </form>
+
+                    <h4>Forgot Password</h4>
+                    <form id="password-reset-request-form" class="form-grid" novalidate>
+                        <label>
+                            Account Email
+                            <input type="email" name="resetEmail" placeholder="jane@example.com" required>
+                        </label>
+                        <button type="submit" class="btn btn-secondary">Send Reset Email</button>
+                    </form>
+
+                    <form id="password-reset-form" class="form-grid" novalidate>
+                        <label>
+                            Reset Token
+                            <input type="text" name="resetToken" placeholder="reset_..." required>
+                        </label>
+                        <label>
+                            New Password
+                            <input type="password" name="newPassword" placeholder="Enter new password" required>
+                        </label>
+                        <button type="submit" class="btn btn-secondary">Reset Password</button>
+                    </form>
+                </div>
+
+                <div class="registration-card">
+                    <h4>Update Registration Info</h4>
+                    <form id="registration-update-form" class="form-grid" novalidate>
+                        <label>
+                            User ID
+                            <input type="number" name="userId" placeholder="1" required>
+                        </label>
+                        <label>
+                            New Full Name
+                            <input type="text" name="updatedFullName" placeholder="Jane Q. Doe">
+                        </label>
+                        <label>
+                            New Email
+                            <input type="email" name="updatedEmail" placeholder="jane.new@example.com">
+                        </label>
+                        <label>
+                            New Phone
+                            <input type="tel" name="updatedPhone" placeholder="(555) 987-6543">
+                        </label>
+                        <button type="submit" class="btn btn-secondary">Update Info</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="registration-logs-layout">
+                <div class="widget">
+                    <h3>Sent Emails (Demo Outbox)</h3>
+                    <div id="email-outbox-panel" class="log-panel"></div>
+                </div>
+                <div class="widget">
+                    <h3>Registration Audit Log</h3>
+                    <div id="registration-audit-panel" class="log-panel"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    /** Attach form and input listeners */
+    bindEvents() {
+        const registrationForm = this.container.querySelector('#registration-form');
+        const verificationForm = this.container.querySelector('#verification-form');
+        const resetRequestForm = this.container.querySelector('#password-reset-request-form');
+        const resetForm = this.container.querySelector('#password-reset-form');
+        const updateForm = this.container.querySelector('#registration-update-form');
+        const passwordInput = this.container.querySelector('#registration-password');
+
+        passwordInput?.addEventListener('input', () => this.updatePasswordStrength());
+
+        registrationForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            await this.handleRegistrationSubmit();
+        });
+
+        verificationForm?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            this.handleVerificationSubmit();
+        });
+
+        resetRequestForm?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            this.handleResetRequestSubmit();
+        });
+
+        resetForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            await this.handleResetSubmit();
+        });
+
+        updateForm?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            this.handleUpdateSubmit();
+        });
+    }
+
+    /** Update password strength indicator as user types */
+    updatePasswordStrength() {
+        const password = this.container.querySelector('#registration-password')?.value || '';
+        const strength = this.api.getPasswordStrength(password);
+        const strengthEl = this.container.querySelector('#password-strength');
+        if (!strengthEl) return;
+
+        strengthEl.textContent = `Password strength: ${strength.label}`;
+        strengthEl.classList.remove('strength-weak', 'strength-good', 'strength-strong');
+        if (strength.score <= 2) {
+            strengthEl.classList.add('strength-weak');
+        } else if (strength.score <= 4) {
+            strengthEl.classList.add('strength-good');
+        } else {
+            strengthEl.classList.add('strength-strong');
+        }
+    }
+
+    /** Handle registration form submission */
+    async handleRegistrationSubmit() {
+        const form = this.container.querySelector('#registration-form');
+        const errorsEl = this.container.querySelector('#registration-errors');
+        if (!form || !errorsEl) return;
+
+        const formData = new FormData(form);
+        const input = {
+            fullName: String(formData.get('fullName') || ''),
+            email: String(formData.get('email') || ''),
+            phone: String(formData.get('phone') || ''),
+            password: String(formData.get('password') || ''),
+            confirmPassword: String(formData.get('confirmPassword') || '')
+        };
+        const captchaAnswer = Number(formData.get('captcha'));
+
+        const validationErrors = this.api.validateRegistrationData(
+            input,
+            captchaAnswer,
+            this.currentCaptcha.answer
+        );
+
+        if (validationErrors.length) {
+            errorsEl.classList.remove('hidden');
+            errorsEl.innerHTML = validationErrors.map(error => `<div>${this.escapeHtml(error)}</div>`).join('');
+            DashboardUtils.showNotification('Please correct the highlighted registration errors.', 'error');
+            return;
+        }
+
+        errorsEl.classList.add('hidden');
+        errorsEl.innerHTML = '';
+
+        try {
+            const result = await this.api.registerUser(input, captchaAnswer, this.currentCaptcha.answer);
+            this.activeUserId = result.user.id;
+            DashboardUtils.showNotification('Registration successful. Check verification token in Sent Emails.', 'success');
+            form.reset();
+            this.refreshCaptcha();
+
+            const verificationInput = this.container.querySelector('input[name="verificationToken"]');
+            if (verificationInput) {
+                verificationInput.value = result.verificationToken;
+            }
+
+            const userIdInput = this.container.querySelector('input[name="userId"]');
+            if (userIdInput) {
+                userIdInput.value = String(result.user.id);
+            }
+
+            this.refreshPanels();
+        } catch (error) {
+            errorsEl.classList.remove('hidden');
+            errorsEl.innerHTML = `<div>${this.escapeHtml(error.message)}</div>`;
+            DashboardUtils.showNotification('Registration failed.', 'error');
+            this.refreshCaptcha();
+            this.refreshPanels();
+        }
+    }
+
+    /** Handle email verification form */
+    handleVerificationSubmit() {
+        const form = this.container.querySelector('#verification-form');
+        if (!form) return;
+
+        const token = String(new FormData(form).get('verificationToken') || '').trim();
+        if (!token) {
+            DashboardUtils.showNotification('Enter a verification token.', 'error');
+            return;
+        }
+
+        try {
+            const user = this.api.verifyEmail(token);
+            this.activeUserId = user.id;
+            DashboardUtils.showNotification('Email verified. Confirmation email sent.', 'success');
+            form.reset();
+            this.refreshPanels();
+        } catch (error) {
+            DashboardUtils.showNotification(error.message, 'error');
+            this.refreshPanels();
+        }
+    }
+
+    /** Handle password reset request form */
+    handleResetRequestSubmit() {
+        const form = this.container.querySelector('#password-reset-request-form');
+        if (!form) return;
+        const email = String(new FormData(form).get('resetEmail') || '').trim();
+
+        try {
+            const resetToken = this.api.requestPasswordReset(email);
+            const resetInput = this.container.querySelector('input[name="resetToken"]');
+            if (resetInput) {
+                resetInput.value = resetToken;
+            }
+            DashboardUtils.showNotification('Password reset email sent.', 'success');
+            this.refreshPanels();
+        } catch (error) {
+            DashboardUtils.showNotification(error.message, 'error');
+            this.refreshPanels();
+        }
+    }
+
+    /** Handle actual password reset with token + new password */
+    async handleResetSubmit() {
+        const form = this.container.querySelector('#password-reset-form');
+        if (!form) return;
+
+        const data = new FormData(form);
+        const token = String(data.get('resetToken') || '').trim();
+        const newPassword = String(data.get('newPassword') || '');
+
+        try {
+            await this.api.resetPassword(token, newPassword);
+            DashboardUtils.showNotification('Password has been reset.', 'success');
+            form.reset();
+            this.refreshPanels();
+        } catch (error) {
+            DashboardUtils.showNotification(error.message, 'error');
+            this.refreshPanels();
+        }
+    }
+
+    /** Handle registration-info update form */
+    handleUpdateSubmit() {
+        const form = this.container.querySelector('#registration-update-form');
+        if (!form) return;
+
+        const data = new FormData(form);
+        const userId = Number(data.get('userId'));
+        if (!userId) {
+            DashboardUtils.showNotification('Provide a valid user ID.', 'error');
+            return;
+        }
+
+        const updates = {
+            fullName: String(data.get('updatedFullName') || ''),
+            email: String(data.get('updatedEmail') || ''),
+            phone: String(data.get('updatedPhone') || '')
+        };
+
+        if (!updates.fullName) delete updates.fullName;
+        if (!updates.email) delete updates.email;
+        if (!updates.phone) delete updates.phone;
+
+        try {
+            this.api.updateRegistrationInfo(userId, updates);
+            DashboardUtils.showNotification('Registration info updated successfully.', 'success');
+            this.refreshPanels();
+        } catch (error) {
+            DashboardUtils.showNotification(error.message, 'error');
+            this.refreshPanels();
+        }
+    }
+
+    /** Refresh both the email and audit panels */
+    refreshPanels() {
+        this.renderEmailOutbox();
+        this.renderAuditLog();
+    }
+
+    /** Render sent emails panel */
+    renderEmailOutbox() {
+        const panel = this.container.querySelector('#email-outbox-panel');
+        if (!panel) return;
+
+        const mails = this.api.getEmailOutbox().slice(0, 8);
+        if (!mails.length) {
+            panel.innerHTML = '<p class="empty-log">No emails sent yet.</p>';
+            return;
+        }
+
+        panel.innerHTML = mails.map(mail => `
+            <div class="log-row">
+                <div class="log-row-title">${this.escapeHtml(mail.subject)}</div>
+                <div class="log-row-meta">To: ${this.escapeHtml(mail.to)} • ${DashboardUtils.formatDate(mail.sentAt)}</div>
+                <div class="log-row-body">${this.escapeHtml(mail.body)}</div>
+            </div>
+        `).join('');
+    }
+
+    /** Render registration audit events */
+    renderAuditLog() {
+        const panel = this.container.querySelector('#registration-audit-panel');
+        if (!panel) return;
+
+        const logs = this.api.getAuditLogs().slice(0, 12);
+        if (!logs.length) {
+            panel.innerHTML = '<p class="empty-log">No audit events yet.</p>';
+            return;
+        }
+
+        panel.innerHTML = logs.map(log => `
+            <div class="log-row">
+                <div class="log-row-title">${this.escapeHtml(log.eventType)}</div>
+                <div class="log-row-meta">${DashboardUtils.formatDate(log.occurredAt)}</div>
+                <div class="log-row-body">${this.escapeHtml(JSON.stringify(log.details))}</div>
+            </div>
+        `).join('');
+    }
+
+    /** Generate and display a new CAPTCHA challenge */
+    refreshCaptcha() {
+        this.currentCaptcha = this.api.generateCaptchaChallenge();
+        const question = this.container.querySelector('#captcha-question');
+        if (question) {
+            question.textContent = this.currentCaptcha.question;
+        }
+    }
+
+    /** Escape text to prevent XSS in rendered logs */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
+    }
+
+    /** Destroy component */
+    destroy() {
+        if (this.container) {
+            this.container.innerHTML = '';
+        }
+    }
+}
+
 // Global variables for dashboard components
 let userProfileComponent = null;
 let recommendationsComponent = null;
+let registrationComponent = null;
 
 /**
  * Initialize dashboard components
@@ -521,6 +937,9 @@ function initializeDashboard() {
         userAPI,
         browsingHistoryTracker
     );
+
+    // Initialize registration component
+    registrationComponent = new RegistrationComponent('registration-container', registrationAPI);
 
     // Add resize listener for responsive behavior
     const handleResize = DashboardUtils.debounce(() => {

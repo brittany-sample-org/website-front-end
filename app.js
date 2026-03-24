@@ -73,6 +73,7 @@ class App {
             // Store component references
             this.components.userProfile = userProfileComponent;
             this.components.recommendations = recommendationsComponent;
+            this.components.registration = registrationComponent;
             
             // Set up component event listeners
             this.setupComponentEventListeners();

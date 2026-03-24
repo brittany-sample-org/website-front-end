@@ -268,8 +268,470 @@ class UserAPI {
     }
 }
 
+/**
+ * Registration and identity API for a demo front-end application.
+ * Data is persisted locally to simulate backend behavior.
+ */
+class RegistrationAPI {
+    constructor() {
+        this.usersDbKey = 'secure_users_db_v1';
+        this.auditLogKey = 'registration_audit_log_v1';
+        this.emailOutboxKey = 'registration_email_outbox_v1';
+        this.verificationTokenPrefix = 'verify_';
+        this.resetTokenPrefix = 'reset_';
+    }
+
+    /**
+     * Validate registration data and return a list of clear error messages
+     * @param {Object} input - User input
+     * @param {number} captchaAnswer - User CAPTCHA answer
+     * @param {number} captchaExpected - Expected CAPTCHA answer
+     * @returns {Array<string>} Validation errors
+     */
+    validateRegistrationData(input, captchaAnswer, captchaExpected) {
+        const errors = [];
+
+        if (!input.fullName || input.fullName.trim().length < 2) {
+            errors.push('Full name must be at least 2 characters long.');
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!input.email || !emailRegex.test(input.email)) {
+            errors.push('Please enter a valid email address.');
+        }
+
+        const existingUser = this.getUsers().find(
+            user => user.email.toLowerCase() === String(input.email || '').toLowerCase()
+        );
+        if (existingUser) {
+            errors.push('An account with this email already exists.');
+        }
+
+        const passwordStrength = this.getPasswordStrength(input.password || '');
+        if (!passwordStrength.isValid) {
+            errors.push('Password must be at least 10 characters and include upper, lower, number, and symbol.');
+        }
+
+        if (input.password !== input.confirmPassword) {
+            errors.push('Password and confirm password do not match.');
+        }
+
+        if (Number(captchaAnswer) !== Number(captchaExpected)) {
+            errors.push('CAPTCHA verification failed. Please solve the challenge correctly.');
+        }
+
+        return errors;
+    }
+
+    /**
+     * Return password strength details
+     * @param {string} password - Plain text password
+     * @returns {{score: number, label: string, isValid: boolean}}
+     */
+    getPasswordStrength(password) {
+        let score = 0;
+        if (password.length >= 10) score += 1;
+        if (/[a-z]/.test(password)) score += 1;
+        if (/[A-Z]/.test(password)) score += 1;
+        if (/[0-9]/.test(password)) score += 1;
+        if (/[^A-Za-z0-9]/.test(password)) score += 1;
+
+        const labels = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong', 'Very Strong'];
+        return {
+            score,
+            label: labels[score],
+            isValid: score >= 5
+        };
+    }
+
+    /**
+     * Hash password before storing it
+     * @param {string} password - Plain text password
+     * @returns {Promise<string>} SHA-256 hash
+     */
+    async hashPassword(password) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const bytes = Array.from(new Uint8Array(hashBuffer));
+        return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    /**
+     * Register a user and send a verification email
+     * @param {Object} input - Registration form input
+     * @param {number} captchaAnswer - User CAPTCHA answer
+     * @param {number} captchaExpected - Expected CAPTCHA answer
+     * @returns {Promise<{user: Object, verificationToken: string}>}
+     */
+    async registerUser(input, captchaAnswer, captchaExpected) {
+        const errors = this.validateRegistrationData(input, captchaAnswer, captchaExpected);
+        if (errors.length) {
+            this.logActivity('REGISTRATION_FAILED', {
+                email: input.email,
+                errors
+            });
+            throw new Error(errors.join(' | '));
+        }
+
+        const users = this.getUsers();
+        const now = new Date().toISOString();
+        const userId = users.length ? Math.max(...users.map(user => user.id)) + 1 : 1;
+        const passwordHash = await this.hashPassword(input.password);
+        const verificationToken = this.createToken(this.verificationTokenPrefix, input.email);
+
+        const userRecord = {
+            id: userId,
+            fullName: input.fullName.trim(),
+            email: input.email.trim().toLowerCase(),
+            phone: (input.phone || '').trim(),
+            passwordHash,
+            isEmailVerified: false,
+            verificationToken,
+            resetToken: null,
+            resetTokenExpiry: null,
+            createdAt: now,
+            updatedAt: now
+        };
+
+        users.push(userRecord);
+        this.saveUsers(users);
+
+        this.sendEmail({
+            to: userRecord.email,
+            subject: 'Verify your account',
+            body: `Welcome ${userRecord.fullName}! Use verification token: ${verificationToken}`,
+            type: 'verification'
+        });
+
+        this.sendEmail({
+            to: userRecord.email,
+            subject: 'Registration received',
+            body: 'Your registration was successful. Please verify your email to activate your account.',
+            type: 'confirmation'
+        });
+
+        this.logActivity('REGISTRATION_SUCCESS', {
+            userId,
+            email: userRecord.email
+        });
+
+        return {
+            user: this.publicUser(userRecord),
+            verificationToken
+        };
+    }
+
+    /**
+     * Verify email token and send confirmation email
+     * @param {string} token - Verification token
+     * @returns {Object} Updated user data
+     */
+    verifyEmail(token) {
+        const users = this.getUsers();
+        const index = users.findIndex(user => user.verificationToken === token);
+        if (index === -1) {
+            this.logActivity('EMAIL_VERIFICATION_FAILED', { token });
+            throw new Error('Invalid verification token.');
+        }
+
+        users[index].isEmailVerified = true;
+        users[index].verificationToken = null;
+        users[index].updatedAt = new Date().toISOString();
+        this.saveUsers(users);
+
+        this.sendEmail({
+            to: users[index].email,
+            subject: 'Registration confirmed',
+            body: `Your account is now active. You can access all features.`,
+            type: 'confirmation'
+        });
+
+        this.logActivity('EMAIL_VERIFIED', {
+            userId: users[index].id,
+            email: users[index].email
+        });
+
+        return this.publicUser(users[index]);
+    }
+
+    /**
+     * Send reset token to email for forgotten password flow
+     * @param {string} email - Account email
+     * @returns {string} Reset token
+     */
+    requestPasswordReset(email) {
+        const users = this.getUsers();
+        const normalizedEmail = String(email || '').toLowerCase().trim();
+        const index = users.findIndex(user => user.email === normalizedEmail);
+        if (index === -1) {
+            this.logActivity('PASSWORD_RESET_REQUEST_FAILED', { email: normalizedEmail });
+            throw new Error('No account found with that email.');
+        }
+
+        const token = this.createToken(this.resetTokenPrefix, normalizedEmail);
+        const expiry = Date.now() + 15 * 60 * 1000;
+        users[index].resetToken = token;
+        users[index].resetTokenExpiry = expiry;
+        users[index].updatedAt = new Date().toISOString();
+        this.saveUsers(users);
+
+        this.sendEmail({
+            to: normalizedEmail,
+            subject: 'Password reset request',
+            body: `Use reset token: ${token}. This token expires in 15 minutes.`,
+            type: 'password_reset'
+        });
+
+        this.logActivity('PASSWORD_RESET_REQUESTED', {
+            userId: users[index].id,
+            email: normalizedEmail
+        });
+
+        return token;
+    }
+
+    /**
+     * Complete password reset using reset token
+     * @param {string} token - Reset token
+     * @param {string} newPassword - New plain-text password
+     * @returns {Promise<Object>} Updated user data
+     */
+    async resetPassword(token, newPassword) {
+        const users = this.getUsers();
+        const index = users.findIndex(user => user.resetToken === token);
+        if (index === -1) {
+            this.logActivity('PASSWORD_RESET_FAILED', { token });
+            throw new Error('Invalid reset token.');
+        }
+
+        if (!users[index].resetTokenExpiry || Date.now() > users[index].resetTokenExpiry) {
+            this.logActivity('PASSWORD_RESET_FAILED', {
+                userId: users[index].id,
+                reason: 'expired_token'
+            });
+            throw new Error('Reset token has expired.');
+        }
+
+        const strength = this.getPasswordStrength(newPassword);
+        if (!strength.isValid) {
+            throw new Error('New password does not meet strength requirements.');
+        }
+
+        users[index].passwordHash = await this.hashPassword(newPassword);
+        users[index].resetToken = null;
+        users[index].resetTokenExpiry = null;
+        users[index].updatedAt = new Date().toISOString();
+        this.saveUsers(users);
+
+        this.logActivity('PASSWORD_RESET_COMPLETED', {
+            userId: users[index].id,
+            email: users[index].email
+        });
+
+        return this.publicUser(users[index]);
+    }
+
+    /**
+     * Update registration info for an existing user
+     * @param {number} userId - User identifier
+     * @param {Object} updates - Fields to update
+     * @returns {Object} Updated user data
+     */
+    updateRegistrationInfo(userId, updates) {
+        const users = this.getUsers();
+        const index = users.findIndex(user => user.id === Number(userId));
+        if (index === -1) {
+            throw new Error('User not found.');
+        }
+
+        if (updates.email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(updates.email)) {
+                throw new Error('Please enter a valid email address.');
+            }
+            const emailTaken = users.some(
+                user => user.id !== Number(userId) && user.email === updates.email.toLowerCase().trim()
+            );
+            if (emailTaken) {
+                throw new Error('Another account already uses this email address.');
+            }
+            users[index].email = updates.email.toLowerCase().trim();
+            users[index].isEmailVerified = false;
+            users[index].verificationToken = this.createToken(this.verificationTokenPrefix, users[index].email);
+
+            this.sendEmail({
+                to: users[index].email,
+                subject: 'Verify your updated email',
+                body: `Use verification token: ${users[index].verificationToken}`,
+                type: 'verification'
+            });
+        }
+
+        if (typeof updates.fullName === 'string' && updates.fullName.trim().length >= 2) {
+            users[index].fullName = updates.fullName.trim();
+        }
+
+        if (typeof updates.phone === 'string') {
+            users[index].phone = updates.phone.trim();
+        }
+
+        users[index].updatedAt = new Date().toISOString();
+        this.saveUsers(users);
+
+        this.logActivity('REGISTRATION_INFO_UPDATED', {
+            userId: users[index].id,
+            email: users[index].email
+        });
+
+        return this.publicUser(users[index]);
+    }
+
+    /**
+     * Return all users without sensitive fields
+     * @returns {Array<Object>} Public users
+     */
+    getPublicUsers() {
+        return this.getUsers().map(user => this.publicUser(user));
+    }
+
+    /**
+     * Return registration audit logs
+     * @returns {Array<Object>} Log events
+     */
+    getAuditLogs() {
+        return this.readJson(this.auditLogKey, []);
+    }
+
+    /**
+     * Return sent emails for demo visibility
+     * @returns {Array<Object>} Email outbox entries
+     */
+    getEmailOutbox() {
+        return this.readJson(this.emailOutboxKey, []);
+    }
+
+    /**
+     * Build a simple CAPTCHA challenge
+     * @returns {{question: string, answer: number}}
+     */
+    generateCaptchaChallenge() {
+        const a = Math.floor(Math.random() * 9) + 1;
+        const b = Math.floor(Math.random() * 9) + 1;
+        const operation = Math.random() > 0.5 ? '+' : '-';
+        const answer = operation === '+' ? a + b : a - b;
+        return {
+            question: `${a} ${operation} ${b}`,
+            answer
+        };
+    }
+
+    /**
+     * Save audit logs for registration activities
+     * @param {string} eventType - Event name
+     * @param {Object} details - Event details
+     */
+    logActivity(eventType, details = {}) {
+        const logs = this.getAuditLogs();
+        logs.unshift({
+            id: this.createToken('log_', eventType),
+            eventType,
+            details,
+            occurredAt: new Date().toISOString()
+        });
+        this.writeJson(this.auditLogKey, logs.slice(0, 300));
+    }
+
+    /**
+     * Simulate sending email by storing it in local outbox
+     * @param {Object} mail - Mail metadata
+     */
+    sendEmail(mail) {
+        const outbox = this.getEmailOutbox();
+        outbox.unshift({
+            id: this.createToken('mail_', mail.to),
+            ...mail,
+            sentAt: new Date().toISOString()
+        });
+        this.writeJson(this.emailOutboxKey, outbox.slice(0, 100));
+    }
+
+    /**
+     * Create a unique token
+     * @param {string} prefix - Token prefix
+     * @param {string} seed - Seed content
+     * @returns {string} Unique token
+     */
+    createToken(prefix, seed = '') {
+        const rand = Math.random().toString(36).slice(2, 10);
+        const ts = Date.now().toString(36);
+        const safeSeed = String(seed).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+        return `${prefix}${safeSeed}${ts}${rand}`;
+    }
+
+    /**
+     * Normalize user object for UI
+     * @param {Object} user - Raw user object
+     * @returns {Object} Safe user object
+     */
+    publicUser(user) {
+        return {
+            id: user.id,
+            fullName: user.fullName,
+            email: user.email,
+            phone: user.phone,
+            isEmailVerified: user.isEmailVerified,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt
+        };
+    }
+
+    /**
+     * Return users from local storage
+     * @returns {Array<Object>} Raw users
+     */
+    getUsers() {
+        return this.readJson(this.usersDbKey, []);
+    }
+
+    /**
+     * Save users to local storage
+     * @param {Array<Object>} users - Users list
+     */
+    saveUsers(users) {
+        this.writeJson(this.usersDbKey, users);
+    }
+
+    /**
+     * Read JSON from local storage
+     * @param {string} key - Storage key
+     * @param {any} fallback - Fallback when missing/invalid
+     * @returns {any} Parsed value
+     */
+    readJson(key, fallback) {
+        try {
+            const raw = localStorage.getItem(key);
+            return raw ? JSON.parse(raw) : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    /**
+     * Write JSON to local storage
+     * @param {string} key - Storage key
+     * @param {any} value - Serializable value
+     */
+    writeJson(key, value) {
+        localStorage.setItem(key, JSON.stringify(value));
+    }
+}
+
 // Create and export API instance
 const userAPI = new UserAPI();
+
+// Create and export registration API instance
+const registrationAPI = new RegistrationAPI();
 
 // Start simulating real-time updates for demo
 userAPI.simulateRealTimeUpdates();
