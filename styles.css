@@ -688,3 +688,228 @@ body {
         padding: 0.85rem;
     }
 }
+
+/* ============================================================
+   Order Tracking Section
+   ============================================================ */
+
+.order-tracking-section {
+    margin-top: 3rem;
+}
+
+.tracking-search-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 1rem;
+}
+
+.tracking-form {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.tracking-form label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #555;
+}
+
+.tracking-form-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.6rem;
+}
+
+.tracking-form-row input {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 0.6rem 0.7rem;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tracking-form-row input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.tracking-help-text {
+    font-size: 0.8rem;
+    color: #777;
+}
+
+.tracking-results {
+    margin-top: 1rem;
+    display: grid;
+    gap: 1rem;
+}
+
+.tracking-placeholder {
+    background: white;
+    border: 1px dashed #ddd;
+    border-radius: 10px;
+    padding: 1.2rem;
+    color: #777;
+    font-size: 0.9rem;
+}
+
+.tracking-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.tracking-info-card,
+.tracking-timeline-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 1rem;
+}
+
+.tracking-info-card h4,
+.tracking-timeline-card h4 {
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+    color: #555;
+}
+
+.tracking-kv-list {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.tracking-kv-list div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 0.35rem;
+}
+
+.tracking-kv-list span {
+    color: #777;
+    font-size: 0.84rem;
+}
+
+.tracking-kv-list strong {
+    color: #333;
+    font-size: 0.86rem;
+    text-align: right;
+}
+
+.tracking-status-badge {
+    color: #fff !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 999px;
+    padding: 0.18rem 0.6rem;
+    font-size: 0.75rem;
+}
+
+.tracking-progress {
+    width: 100%;
+    background: #ececec;
+    border-radius: 999px;
+    height: 8px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.tracking-progress-bar {
+    height: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    transition: width 0.35s ease;
+}
+
+.tracking-timeline {
+    list-style: none;
+    display: grid;
+    gap: 0.75rem;
+}
+
+.timeline-item {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 0.55rem;
+    position: relative;
+}
+
+.timeline-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #d2d2d2;
+    margin-top: 0.25rem;
+}
+
+.timeline-item::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 18px;
+    width: 2px;
+    bottom: -10px;
+    background: #e8e8e8;
+}
+
+.timeline-item:last-child::after {
+    display: none;
+}
+
+.timeline-item--completed .timeline-dot {
+    background: #28a745;
+}
+
+.timeline-item--current .timeline-dot {
+    background: #667eea;
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.2);
+}
+
+.timeline-item--upcoming .timeline-dot {
+    background: #c9c9c9;
+}
+
+.timeline-top-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.timeline-status {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.timeline-time {
+    font-size: 0.78rem;
+    color: #777;
+}
+
+.timeline-description {
+    font-size: 0.82rem;
+    color: #555;
+    margin-top: 0.15rem;
+}
+
+.timeline-location {
+    font-size: 0.78rem;
+    color: #888;
+}
+
+@media (max-width: 768px) {
+    .tracking-form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .tracking-kv-list div {
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+    .tracking-kv-list strong {
+        text-align: left;
+    }
+}

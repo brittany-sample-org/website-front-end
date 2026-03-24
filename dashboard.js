@@ -919,10 +919,207 @@ class RegistrationComponent {
     }
 }
 
+/**
+ * Order tracking component with timeline details and delivery estimates.
+ */
+class OrderTrackingComponent {
+    /**
+     * @param {string} containerId - Container element ID
+     * @param {OrderTrackingAPI} api - Order tracking API instance
+     */
+    constructor(containerId, api) {
+        this.container = document.getElementById(containerId);
+        this.api = api;
+        this.currentData = null;
+
+        this.init();
+    }
+
+    /** Initialize component */
+    init() {
+        if (!this.container) {
+            console.error('Order tracking container not found');
+            return;
+        }
+
+        this.renderBase();
+        this.bindEvents();
+    }
+
+    /** Render static frame */
+    renderBase() {
+        this.container.innerHTML = `
+            <div class="tracking-search-card">
+                <form id="tracking-form" class="tracking-form" novalidate>
+                    <label for="tracking-order-number">Order Number</label>
+                    <div class="tracking-form-row">
+                        <input
+                            id="tracking-order-number"
+                            name="orderNumber"
+                            type="text"
+                            placeholder="e.g. ORD-102938"
+                            aria-describedby="tracking-form-help"
+                            required
+                        >
+                        <button type="submit" class="btn btn-primary">Track Order</button>
+                    </div>
+                    <p id="tracking-form-help" class="tracking-help-text">Enter your order number to view shipment milestones and estimated delivery window.</p>
+                    <div id="tracking-form-error" class="form-errors hidden" role="alert"></div>
+                </form>
+            </div>
+
+            <div id="tracking-results" class="tracking-results" aria-live="polite">
+                <p class="tracking-placeholder">No tracking data yet. Search an order to begin.</p>
+            </div>
+        `;
+    }
+
+    /** Bind input and submit events */
+    bindEvents() {
+        const form = this.container.querySelector('#tracking-form');
+        form?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            this.handleTrackOrder();
+        });
+    }
+
+    /** Handle order lookup */
+    handleTrackOrder() {
+        const form = this.container.querySelector('#tracking-form');
+        const errorEl = this.container.querySelector('#tracking-form-error');
+        const results = this.container.querySelector('#tracking-results');
+        if (!form || !errorEl || !results) return;
+
+        const orderNumber = String(new FormData(form).get('orderNumber') || '').trim();
+        errorEl.classList.add('hidden');
+        errorEl.innerHTML = '';
+
+        try {
+            this.currentData = this.api.fetchOrderTracking(orderNumber);
+            this.renderResults();
+            DashboardUtils.showNotification('Tracking information updated.', 'success');
+        } catch (error) {
+            errorEl.classList.remove('hidden');
+            errorEl.innerHTML = `<div>${this.escapeHtml(error.message)}</div>`;
+            results.innerHTML = '<p class="tracking-placeholder">No tracking data yet. Search an order to begin.</p>';
+            DashboardUtils.showNotification('Unable to fetch tracking info.', 'error');
+        }
+    }
+
+    /** Render details when tracking data is available */
+    renderResults() {
+        const results = this.container.querySelector('#tracking-results');
+        if (!results || !this.currentData) return;
+
+        const { order, currentStatus, events, estimate } = this.currentData;
+        const currentIndex = events.findIndex(event => event.state === 'current');
+        const progressPercent = currentIndex >= 0
+            ? Math.round((currentIndex / (events.length - 1)) * 100)
+            : 0;
+
+        results.innerHTML = `
+            <div class="tracking-summary-grid">
+                <article class="tracking-info-card" aria-label="Shipment summary">
+                    <h4>Shipment Summary</h4>
+                    <div class="tracking-kv-list">
+                        <div><span>Order</span><strong>${this.escapeHtml(order.number)}</strong></div>
+                        <div><span>Status</span><strong class="tracking-status-badge">${this.escapeHtml(currentStatus)}</strong></div>
+                        <div><span>Carrier</span><strong>${this.escapeHtml(order.carrier)}</strong></div>
+                        <div><span>Service</span><strong>${this.escapeHtml(order.serviceLevel)}</strong></div>
+                        <div><span>Destination</span><strong>${this.escapeHtml(order.destination)}</strong></div>
+                    </div>
+                </article>
+
+                <article class="tracking-info-card" aria-label="Delivery estimate">
+                    <h4>Delivery Estimate</h4>
+                    <div class="tracking-kv-list">
+                        <div><span>Estimated Delivery</span><strong>${this.formatDateTime(estimate.estimatedDate)}</strong></div>
+                        <div><span>Delivery Window</span><strong>${this.formatTime(estimate.earliestDelivery)} – ${this.formatTime(estimate.latestDelivery)}</strong></div>
+                        <div><span>Confidence</span><strong>${this.escapeHtml(estimate.confidence)}</strong></div>
+                        <div><span>Last Updated</span><strong>${this.formatDateTime(estimate.lastUpdated)}</strong></div>
+                    </div>
+                </article>
+            </div>
+
+            <article class="tracking-timeline-card" aria-label="Tracking timeline">
+                <h4>Detailed Tracking Information</h4>
+                <div class="tracking-progress" aria-label="Shipment progress">
+                    <div class="tracking-progress-bar" style="width: ${progressPercent}%"></div>
+                </div>
+                <ol class="tracking-timeline">
+                    ${events.map(event => this.renderTimelineEvent(event)).join('')}
+                </ol>
+            </article>
+        `;
+    }
+
+    /**
+     * Render a single timeline row
+     * @param {Object} event - Tracking event
+     * @returns {string} HTML string
+     */
+    renderTimelineEvent(event) {
+        return `
+            <li class="timeline-item timeline-item--${event.state}">
+                <div class="timeline-dot" aria-hidden="true"></div>
+                <div class="timeline-content">
+                    <div class="timeline-top-row">
+                        <span class="timeline-status">${this.escapeHtml(event.status)}</span>
+                        <time datetime="${event.timestamp}" class="timeline-time">${this.formatDateTime(event.timestamp)}</time>
+                    </div>
+                    <p class="timeline-description">${this.escapeHtml(event.description)}</p>
+                    <p class="timeline-location">${this.escapeHtml(event.location)}</p>
+                </div>
+            </li>
+        `;
+    }
+
+    /**
+     * Format timestamp to local date/time
+     * @param {string} timestamp - ISO date string
+     * @returns {string} Formatted text
+     */
+    formatDateTime(timestamp) {
+        return new Date(timestamp).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    /**
+     * Format only time
+     * @param {string} timestamp - ISO date string
+     * @returns {string} Formatted text
+     */
+    formatTime(timestamp) {
+        return new Date(timestamp).toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    /** Escape HTML */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
+    }
+
+    /** Destroy component */
+    destroy() {
+        if (this.container) {
+            this.container.innerHTML = '';
+        }
+    }
+}
+
 // Global variables for dashboard components
 let userProfileComponent = null;
 let recommendationsComponent = null;
 let registrationComponent = null;
+let orderTrackingComponent = null;
 
 /**
  * Initialize dashboard components
@@ -940,6 +1137,9 @@ function initializeDashboard() {
 
     // Initialize registration component
     registrationComponent = new RegistrationComponent('registration-container', registrationAPI);
+
+    // Initialize order tracking component
+    orderTrackingComponent = new OrderTrackingComponent('order-tracking-container', orderTrackingAPI);
 
     // Add resize listener for responsive behavior
     const handleResize = DashboardUtils.debounce(() => {
