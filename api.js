@@ -149,6 +149,87 @@ class UserAPI {
     }
 
     /**
+     * Fetch personalized product recommendations based on user profile and browsing history
+     * @param {number} userId - The user ID
+     * @param {Array<number>} browsingHistory - Array of recently viewed product IDs
+     * @returns {Promise<Array>} Array of recommended product objects
+     */
+    async fetchRecommendations(userId, browsingHistory = []) {
+        try {
+            const cacheKey = `recommendations_${userId}_${browsingHistory.slice(0, 3).join('_')}`;
+            if (this.cache.has(cacheKey)) {
+                return this.cache.get(cacheKey);
+            }
+
+            // Fetch user profile and mock product posts in parallel
+            const [userProfile, postsResponse] = await Promise.all([
+                this.fetchUserProfile(userId),
+                fetch(`${this.baseURL}/posts?_limit=20`)
+            ]);
+
+            if (!postsResponse.ok) {
+                throw new Error(`HTTP error! status: ${postsResponse.status}`);
+            }
+
+            const posts = await postsResponse.json();
+
+            // Map posts to mock product objects with categories, prices, and ratings
+            const categories = ['Electronics', 'Clothing', 'Books', 'Sports', 'Home & Kitchen', 'Beauty', 'Toys', 'Automotive'];
+            const products = posts.map((post, index) => {
+                const category = categories[index % categories.length];
+                const basePrice = 9.99 + (post.id * 3.7) % 190;
+                const rating = 3.0 + (post.id % 20) * 0.1;
+                return {
+                    id: post.id,
+                    title: this.truncateText(post.title, 50),
+                    description: this.truncateText(post.body, 100),
+                    category,
+                    price: parseFloat(basePrice.toFixed(2)),
+                    rating: parseFloat(rating.toFixed(1)),
+                    reviewCount: 10 + (post.id * 7) % 490,
+                    image: `https://picsum.photos/seed/product${post.id}/200/200`,
+                    badge: index < 3 ? 'Top Pick' : index < 6 ? 'New' : null
+                };
+            });
+
+            // Personalize: boost products whose category matches the browsing history
+            const historySet = new Set(browsingHistory);
+            const historyCategories = new Set(
+                products
+                    .filter(p => historySet.has(p.id))
+                    .map(p => p.category)
+            );
+
+            const personalized = products
+                .map(product => ({
+                    ...product,
+                    score: historyCategories.has(product.category)
+                        ? 2 + product.rating
+                        : product.rating
+                }))
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 8);
+
+            this.cache.set(cacheKey, personalized);
+            return personalized;
+        } catch (error) {
+            console.error('Error fetching recommendations:', error);
+            throw new Error('Failed to fetch recommendations. Please try again later.');
+        }
+    }
+
+    /**
+     * Truncate text to a maximum character length
+     * @param {string} text - Source text
+     * @param {number} maxLen - Maximum length before truncation
+     * @returns {string} Truncated text
+     */
+    truncateText(text, maxLen) {
+        if (!text) return '';
+        return text.length > maxLen ? text.substring(0, maxLen).trimEnd() + '...' : text;
+    }
+
+    /**
      * Clear cache for a specific user or all users
      * @param {number} userId - Optional user ID to clear specific cache
      */
@@ -192,3 +273,58 @@ const userAPI = new UserAPI();
 
 // Start simulating real-time updates for demo
 userAPI.simulateRealTimeUpdates();
+
+/**
+ * Tracks the user's product browsing history using localStorage so that
+ * recommendations can be personalized across page loads.
+ */
+class BrowsingHistoryTracker {
+    /**
+     * @param {string} storageKey - localStorage key for persistence
+     * @param {number} maxItems - Maximum number of history entries to keep
+     */
+    constructor(storageKey = 'browsing_history', maxItems = 20) {
+        this.storageKey = storageKey;
+        this.maxItems = maxItems;
+    }
+
+    /**
+     * Retrieve the full browsing history (most recent first)
+     * @returns {Array<number>} Array of product IDs
+     */
+    getHistory() {
+        try {
+            const stored = localStorage.getItem(this.storageKey);
+            return stored ? JSON.parse(stored) : [];
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Record a product view, deduplicating and enforcing max size
+     * @param {number} productId - The product that was viewed
+     * @returns {Array<number>} Updated history
+     */
+    addItem(productId) {
+        const history = this.getHistory().filter(id => id !== productId);
+        history.unshift(productId);
+        const trimmed = history.slice(0, this.maxItems);
+        try {
+            localStorage.setItem(this.storageKey, JSON.stringify(trimmed));
+        } catch (e) {
+            console.warn('Unable to save browsing history:', e);
+        }
+        return trimmed;
+    }
+
+    /**
+     * Clear all browsing history
+     */
+    clear() {
+        localStorage.removeItem(this.storageKey);
+    }
+}
+
+// Create and export browsing history tracker instance
+const browsingHistoryTracker = new BrowsingHistoryTracker();
