@@ -727,11 +727,170 @@ class RegistrationAPI {
     }
 }
 
+/**
+ * Order tracking API for delivery status timeline and estimate calculations.
+ */
+class OrderTrackingAPI {
+    constructor() {
+        this.statuses = [
+            'Order Confirmed',
+            'Payment Verified',
+            'Packed',
+            'Shipped',
+            'In Transit',
+            'Out for Delivery',
+            'Delivered'
+        ];
+    }
+
+    /**
+     * Fetch detailed tracking information and a delivery estimate.
+     * @param {string} orderNumber - Public order number entered by customer
+     * @returns {{order: Object, currentStatus: string, events: Array<Object>, estimate: Object}}
+     */
+    fetchOrderTracking(orderNumber) {
+        const normalizedOrder = String(orderNumber || '').trim().toUpperCase();
+        if (!/^[A-Z0-9-]{6,20}$/.test(normalizedOrder)) {
+            throw new Error('Please enter a valid order number (6-20 letters/numbers).');
+        }
+
+        const now = new Date();
+        const seed = this.seedFromOrder(normalizedOrder);
+        const progressIndex = 2 + (seed % 4); // Packed..Out for Delivery
+
+        const orderedAt = new Date(now.getTime() - ((36 + seed % 24) * 60 * 60 * 1000));
+        const shippedAt = new Date(orderedAt.getTime() + (12 * 60 * 60 * 1000));
+        const inTransitAt = new Date(shippedAt.getTime() + (14 * 60 * 60 * 1000));
+        const outForDeliveryAt = new Date(now.getTime() - (2 * 60 * 60 * 1000));
+
+        const cityOptions = ['Chicago, IL', 'Austin, TX', 'Seattle, WA', 'Atlanta, GA', 'Denver, CO'];
+        const routeCity = cityOptions[seed % cityOptions.length];
+
+        const fullEvents = [
+            {
+                status: 'Order Confirmed',
+                description: 'Your order has been placed and is awaiting fulfillment.',
+                location: 'Online Store',
+                timestamp: orderedAt.toISOString()
+            },
+            {
+                status: 'Payment Verified',
+                description: 'Payment has been authorized and confirmed.',
+                location: 'Billing Center',
+                timestamp: new Date(orderedAt.getTime() + (15 * 60 * 1000)).toISOString()
+            },
+            {
+                status: 'Packed',
+                description: 'Items were packed and labeled for shipment.',
+                location: 'Fulfillment Center',
+                timestamp: new Date(orderedAt.getTime() + (7 * 60 * 60 * 1000)).toISOString()
+            },
+            {
+                status: 'Shipped',
+                description: 'Package was handed off to our shipping carrier.',
+                location: 'Carrier Facility',
+                timestamp: shippedAt.toISOString()
+            },
+            {
+                status: 'In Transit',
+                description: 'Package is moving through the carrier network.',
+                location: routeCity,
+                timestamp: inTransitAt.toISOString()
+            },
+            {
+                status: 'Out for Delivery',
+                description: 'Courier is delivering your package today.',
+                location: 'Local Delivery Hub',
+                timestamp: outForDeliveryAt.toISOString()
+            },
+            {
+                status: 'Delivered',
+                description: 'Package delivered successfully.',
+                location: 'Delivery Address',
+                timestamp: new Date(now.getTime() + (4 * 60 * 60 * 1000)).toISOString()
+            }
+        ];
+
+        const events = fullEvents.map((event, index) => ({
+            ...event,
+            state: index < progressIndex
+                ? 'completed'
+                : index === progressIndex
+                    ? 'current'
+                    : 'upcoming'
+        }));
+
+        const currentStatus = this.statuses[progressIndex];
+        const estimate = this.buildEstimate(currentStatus, now, seed);
+
+        return {
+            order: {
+                number: normalizedOrder,
+                carrier: ['UPS', 'FedEx', 'USPS'][seed % 3],
+                serviceLevel: ['Standard Shipping', 'Two-Day Delivery', 'Priority Shipping'][seed % 3],
+                destination: ['New York, NY', 'Los Angeles, CA', 'Miami, FL', 'Boston, MA'][seed % 4]
+            },
+            currentStatus,
+            events,
+            estimate
+        };
+    }
+
+    /**
+     * Build delivery estimate window from current status.
+     * @param {string} currentStatus - Current shipment status
+     * @param {Date} now - Current timestamp
+     * @param {number} seed - Deterministic value from order number
+     * @returns {{estimatedDate: string, earliestDelivery: string, latestDelivery: string, confidence: string, lastUpdated: string}}
+     */
+    buildEstimate(currentStatus, now, seed) {
+        let hoursUntilDelivery = 0;
+        if (currentStatus === 'Packed') hoursUntilDelivery = 48 + (seed % 12);
+        if (currentStatus === 'Shipped') hoursUntilDelivery = 30 + (seed % 10);
+        if (currentStatus === 'In Transit') hoursUntilDelivery = 16 + (seed % 8);
+        if (currentStatus === 'Out for Delivery') hoursUntilDelivery = 2 + (seed % 4);
+        if (currentStatus === 'Order Confirmed' || currentStatus === 'Payment Verified') {
+            hoursUntilDelivery = 60 + (seed % 24);
+        }
+
+        const target = new Date(now.getTime() + (hoursUntilDelivery * 60 * 60 * 1000));
+        const earliest = new Date(target.getTime() - (2 * 60 * 60 * 1000));
+        const latest = new Date(target.getTime() + (4 * 60 * 60 * 1000));
+        const confidence = currentStatus === 'Out for Delivery'
+            ? 'High'
+            : currentStatus === 'In Transit'
+                ? 'Medium'
+                : 'Standard';
+
+        return {
+            estimatedDate: target.toISOString(),
+            earliestDelivery: earliest.toISOString(),
+            latestDelivery: latest.toISOString(),
+            confidence,
+            lastUpdated: now.toISOString()
+        };
+    }
+
+    /**
+     * Convert order number into deterministic numeric seed.
+     * @param {string} orderNumber - Normalized order number
+     * @returns {number} Seed value
+     */
+    seedFromOrder(orderNumber) {
+        return Array.from(orderNumber).reduce((acc, char, index) => {
+            return acc + (char.charCodeAt(0) * (index + 1));
+        }, 0);
+    }
+}
+
 // Create and export API instance
 const userAPI = new UserAPI();
 
 // Create and export registration API instance
 const registrationAPI = new RegistrationAPI();
+
+// Create and export order tracking API instance
+const orderTrackingAPI = new OrderTrackingAPI();
 
 // Start simulating real-time updates for demo
 userAPI.simulateRealTimeUpdates();

@@ -74,6 +74,7 @@ class App {
             this.components.userProfile = userProfileComponent;
             this.components.recommendations = recommendationsComponent;
             this.components.registration = registrationComponent;
+            this.components.orderTracking = orderTrackingComponent;
             
             // Set up component event listeners
             this.setupComponentEventListeners();
