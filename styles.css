@@ -555,3 +555,136 @@ body {
         gap: 0.75rem;
     }
 }
+
+/* ============================================================
+   User Registration & Security Section
+   ============================================================ */
+
+.registration-section {
+    margin-top: 3rem;
+}
+
+.registration-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.registration-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 1rem;
+}
+
+.registration-card h4 {
+    margin-bottom: 0.75rem;
+    color: #555;
+    font-size: 1rem;
+}
+
+.form-grid {
+    display: grid;
+    gap: 0.65rem;
+    margin-bottom: 1rem;
+}
+
+.form-grid label {
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+.form-grid input {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 0.55rem 0.65rem;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-grid input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.form-errors {
+    border: 1px solid rgba(220, 53, 69, 0.35);
+    background: rgba(220, 53, 69, 0.08);
+    color: #dc3545;
+    border-radius: 8px;
+    padding: 0.65rem;
+    font-size: 0.82rem;
+    display: grid;
+    gap: 0.2rem;
+}
+
+.password-strength {
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.strength-weak {
+    color: #dc3545;
+}
+
+.strength-good {
+    color: #856404;
+}
+
+.strength-strong {
+    color: #28a745;
+}
+
+.registration-logs-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.log-panel {
+    max-height: 280px;
+    overflow: auto;
+    display: grid;
+    gap: 0.65rem;
+}
+
+.log-row {
+    border: 1px solid #ececec;
+    border-radius: 8px;
+    padding: 0.6rem;
+    background: #fafafa;
+}
+
+.log-row-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #333;
+}
+
+.log-row-meta {
+    font-size: 0.76rem;
+    color: #777;
+    margin-top: 0.1rem;
+}
+
+.log-row-body {
+    font-size: 0.75rem;
+    color: #555;
+    margin-top: 0.35rem;
+    word-break: break-word;
+}
+
+.empty-log {
+    font-size: 0.85rem;
+    color: #777;
+}
+
+@media (max-width: 768px) {
+    .registration-card {
+        padding: 0.85rem;
+    }
+}
